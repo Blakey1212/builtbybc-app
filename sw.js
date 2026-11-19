@@ -1,7 +1,7 @@
 /* OneSignal: lets Built by BC show notifications. If it can't load (no signal), the app still works offline. */
 try { importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js'); } catch (e) {}
 /* Built by BC: keeps the app on the phone so it opens with no signal. Weights themselves are saved by the page. */
-const CACHE = 'bbc-push-4758edd5';
+const CACHE = 'bbc-push-3a58cf4a';
 const SHELL = ["index.html", "manifest.webmanifest", "archivo.woff2", "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png"];
 
 self.addEventListener('install', e => {

@@ -251,6 +251,20 @@ svg.chart .grid{stroke:var(--line);stroke-width:1}
 .linkrow{display:flex;gap:8px;align-items:center}
 .linkrow input{flex:1 1 auto;font-size:.8rem;min-height:40px;color:#bdbdbd}
 .dot{display:none}
+.testintro{border:1px solid var(--accent);background:linear-gradient(160deg,rgba(255,90,40,.22),rgba(255,90,40,0) 65%);gap:6px}
+.testintro h2{margin:2px 0 4px;font-size:1.55rem;font-stretch:125%;font-weight:800;line-height:1.1}
+.testintro p{margin:0;color:var(--muted);line-height:1.45}
+.pbt-k{font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.pbtest{gap:10px;transition:box-shadow .25s,border-color .25s;border:1px solid transparent}
+.pbtest h3{font-size:1.4rem;font-stretch:125%;font-weight:800}
+.pbt-cur{color:var(--muted)}.pbt-cur b{color:var(--ink)}
+.pbt-in{display:flex;align-items:center;gap:10px}.pbt-in label{flex:1 1 0;min-width:0}
+.pbt-in input{font-size:1.7rem;font-weight:800;text-align:center;min-height:66px}
+.pbt-x{font-size:1.4rem;color:var(--muted);flex:none}
+.pbt-msg{font-weight:700}
+.pbtest.beat{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 0 30px rgba(255,90,40,.4)}
+.pbtest.beat .pbt-msg{color:var(--accent)}
+.fillrow{display:flex;flex-direction:column;gap:6px;margin-top:4px}
 .trow{display:flex;gap:8px}.trow select{flex:1 1 0}.trow input{flex:0 0 150px}
 .ckdot{display:flex;align-items:center;gap:10px;width:100%;background:var(--raised);border:0;border-radius:16px;padding:14px 16px;color:var(--ink);font:inherit;text-align:left;cursor:pointer;margin-bottom:14px}
 .ckdot i{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none;box-shadow:0 0 0 4px rgba(255,90,40,.18)}
@@ -288,6 +302,17 @@ const isDeload = (p, w) => phaseOf(p, w) === 'Deload';
 const setCount = s => { if (String(s ?? '').trim() === '') return 0; const n = parseInt(s, 10); return isNaN(n) ? 3 : Math.max(0, Math.min(12, n)); };
 const NAMES12 = ['Build · Week 1','Build · Week 2','Build · Week 3','Deload','Strength · Week 1','Strength · Week 2','Strength · Week 3','Deload','Power · Week 1','Power · Week 2','Testing week','Deload'];
 const weekName = (p, w) => lenOf(p) === 12 ? NAMES12[w - 1] : '';
+/* Rep range for each block of a 12-week program, used as the default when planning. */
+/* Blake's default reps per week: reps drop each week within a block. Deload and testing weeks have no default. */
+const WEEK_REPS12 = ['15', '12', '10', '', '8', '8', '6', '', '5', '4', '', ''];
+const blockReps = (p, w) => lenOf(p) === 12 ? (WEEK_REPS12[w - 1] || '') : '';
+/* The four weeks of the block that week w sits in, e.g. week 2 -> 1,2,3,4. */
+const blockWeeks = (p, w) => lenOf(p) === 12 ? [1, 2, 3, 4].map(i => Math.floor((w - 1) / 4) * 4 + i) : [];
+const r25 = x => Math.round(x / 2.5) * 2.5;
+/* Each deload week has its own focus to keep it interesting. */
+const DELOAD_FOCUS = {4: 'Paused reps', 8: 'Slow eccentric', 12: 'Paused reps + slow eccentric'};
+/* Big barbell lifts tested in testing week (not dumbbell variations). */
+const isCompound = n => { const w = liftWords(n); return !/\b(db|dumbbell|kb|kettlebell|cable|machine|smith)\b/i.test(n) && w.some(x => ['squat', 'bench', 'deadlift'].includes(x)); };
 /* Session heading: your own title for that week, else the block name (one-session-a-week programs), else the day name. */
 const sessTitle = (p, day, w, nd) => (day.titles && day.titles[w - 1]) || (nd === 1 && weekName(p, w)) || day.name || 'Session';
 const weekPlanned = (day, wi) => day.type === 'cardio' ? !!(day.cardio[wi].activity || day.cardio[wi].duration) : day.exercises.some(x => setCount(x.weeks[wi].sets) > 0);
@@ -627,7 +652,7 @@ function renderLog(forced){
     <div class="daybar" aria-label="Sessions finished this week">${bar}</div>
     ${(() => { const ex = expectedIdx(person); if (idx <= ex + 2) return ''; const up = idx2pos(ex, nd);
       return `<div class="drift"><span>${isCoach() ? esc((clientById(person) || {}).name || 'They') + ' is' : "You're"} up to <b>Week ${up.week} · Day ${up.day + 1}</b>. This session is ahead.</span><button type="button" class="btn" data-act="gonext">Go back</button></div>`; })()}
-    ${(log.done || ph === 'Deload' || ph === 'Testing') ? `<div class="badges">${ph === 'Deload' ? '<span class="badge alt">Deload week</span>' : ph === 'Testing' ? '<span class="badge alt">Testing week</span>' : ''}${log.done ? '<span class="badge">✓ Finished</span>' : ''}</div>` : ''}
+    ${(log.done || ph === 'Deload' || ph === 'Testing') ? `<div class="badges">${ph === 'Deload' ? '<span class="badge alt">Deload week · go lighter, about 60–70% of last time</span>' : ph === 'Testing' ? '<span class="badge alt">Testing week</span>' : ''}${log.done ? '<span class="badge">✓ Finished</span>' : ''}</div>` : ''}
   </div>`;
   if (day.notes[wi]) h += `<div class="daynote">${esc(day.notes[wi])}</div>`;
 
@@ -665,7 +690,7 @@ function renderLog(forced){
           <span class="tlab">SET ${i+1} <span class="tick">✓</span></span>
           <label class="tkg"><input id="s-${ex.id}-${i}-kg" type="text" inputmode="decimal" autocomplete="off" aria-label="Set ${i+1} weight" data-log="set" data-ex="${ex.id}" data-i="${i}" data-k="kg" value="${esc(s.kg)}"><span>kg</span></label>
           ${ph === 'Testing' ? `<label class="trep"><input id="s-${ex.id}-${i}-reps" type="text" inputmode="numeric" autocomplete="off" aria-label="Set ${i+1} reps" data-log="set" data-ex="${ex.id}" data-i="${i}" data-k="reps" value="${esc(s.reps)}" placeholder="${numReps ? esc(rx.reps.trim()) : ''}"><span>reps</span></label>` : numReps ? `<span class="treps">${esc(rx.reps.trim())} reps</span>` : ''}
-          ${pk ? `<span class="tlast">Last time ${esc(pk)} kg</span>` : ''}
+          ${pk ? (ph === 'Deload' && num(pk) ? `<span class="tlast">Last time ${esc(pk)} kg · aim ${r25(num(pk) * 0.6)}–${r25(num(pk) * 0.7)} kg</span>` : `<span class="tlast">Last time ${esc(pk)} kg</span>`) : ''}
         </div>`;
       }
       const warm = wn ? `<span class="subl">Warm-up</span><div class="wus">${Array.from({length: wn}, (_, i) => `<button type="button" class="wu ${wt[i] ? 'on' : ''}" data-act="warm" data-ex="${ex.id}" data-i="${i}" aria-pressed="${!!wt[i]}" aria-label="Warm-up set ${i+1}">${wt[i] ? '✓' : 'W' + (i+1)}</button>`).join('')}</div><span class="subl">Working sets</span>` : '';
@@ -674,7 +699,8 @@ function renderLog(forced){
     const head = (ex, label) => { const r = ex.weeks[wi], wn = warmCount(r.warm), inPlan = setCount(r.sets) > 0;
       return `<div class="exhead"><div class="exname"><span class="lt">${label}</span><h3>${esc(ex.name || 'Exercise')}</h3></div></div>
         ${inPlan ? `<div class="rxline">${wn ? wn + ' warm-up + ' : ''}${esc(r.sets)} × ${esc(r.reps)}</div>` : ''}${r.note.trim() ? `<span class="tech">${esc(r.note.trim())}</span>` : ''}`; };
-    groups.forEach(g => {
+    if (ph === 'Testing'){ h += testIntro(); ordered.forEach(ex => { h += loggedN(ex.id) > 1 ? `<section class="card main">${head(ex, ex.group)}${setRows(ex)}</section>` : pbTestCard(ex, (log.sets || {})[ex.id] || [], logId(person, w, di)); }); }
+    else groups.forEach(g => {
       const main = g.letter === 'A';
       const label = i => g.items.length > 1 ? g.letter + (i + 1) : g.letter;
       if (!main && ssWeek && g.items.length > 1){
@@ -729,6 +755,36 @@ function livePbs(hist){
     }));
   });
   return pbs;
+}
+/* ----- Testing week: one top set per lift ----- */
+const pbBeat = (kg, reps, pk, pr) => pk !== null && kg !== null && kg > 0 && (kg > pk || (kg === pk && reps !== null && reps > (pr || 0)));
+const pbMsg = (beat, has) => beat ? "NEW PB 🔥🏆 That's going straight on your PB board." : has ? 'One top set. Leave it all on the bar.' : 'One top set. Make it count.';
+/* The client's PB for this lift, not counting what's typed in this session. */
+function pbBase(exName, id){
+  if (mode !== 'client' || !myHistory || !Array.isArray(myHistory.pbs)) return null;
+  const want = liftWords(exName), saved = logs[id];
+  delete logs[id];
+  let list = [];
+  try { list = livePbs(myHistory); } finally { if (saved) logs[id] = saved; }
+  return list.find(p => { const lw = liftWords(p.lift); return lw.length && lw.every(x => want.includes(x)); }) || null;
+}
+function testIntro(){
+  return `<section class="card testintro"><span class="pbt-k">Testing week 🔥</span><h2>Time to see what you've built.</h2>
+    <p>We'll warm up properly with a few warm-up sets and working sets. Then hit one top set per lift and log it here. Beat the number and your PB board updates itself.</p></section>`;
+}
+function pbTestCard(ex, sets, id){
+  const s = sets[0] || {}, base = pbBase(ex.name, id);
+  const pk = base ? num(base.kg) : null, pr = base ? num(base.reps) : null, beat = pbBeat(num(s.kg), num(s.reps), pk, pr);
+  const cur = isCoach() ? 'Log the top set.' : base ? `Current PB <b>${esc(base.kg)} kg${String(base.reps ?? '').trim() ? ' × ' + esc(base.reps) : ''}</b> · beat it` : 'No PB on the board yet. Set the benchmark.';
+  return `<section class="card pbtest ${beat ? 'beat' : ''}" data-pk="${pk ?? ''}" data-pr="${pr ?? ''}" data-has="${base ? 1 : 0}">
+    <span class="pbt-k">PB attempt</span><h3>${esc(ex.name || 'Exercise')}</h3>
+    <div class="pbt-cur">${cur}</div>
+    <div class="pbt-in">
+      <label class="tkg"><input id="s-${ex.id}-0-kg" type="text" inputmode="decimal" autocomplete="off" aria-label="Top set weight" data-log="set" data-ex="${ex.id}" data-i="0" data-k="kg" value="${esc(s.kg)}" placeholder="0"><span>kg</span></label>
+      <span class="pbt-x">×</span>
+      <label class="trep"><input id="s-${ex.id}-0-reps" type="text" inputmode="numeric" autocomplete="off" aria-label="Top set reps" data-log="set" data-ex="${ex.id}" data-i="0" data-k="reps" value="${esc(s.reps)}" placeholder="0"><span>reps</span></label>
+    </div>
+    <div class="pbt-msg">${pbMsg(beat, !!base)}</div></section>`;
 }
 function pbHero(hist){
   return `<section class="pbhero"><span class="label">Personal bests</span><div class="pbs">${livePbs(hist).map(p => `<div class="pb ${p.fresh ? 'fresh' : ''}">
@@ -872,6 +928,10 @@ function renderProgress(forced){
 function wkInputs(prefix, attrs, r, fields){
   return fields.map(([k, ph, cls]) => `<td class="${cls || ''}"><input id="${prefix}-${k}" ${attrs} data-k="${k}" value="${esc(r[k])}" placeholder="${ph}" autocomplete="off"></td>`).join('');
 }
+/* Later weeks in this week's block that haven't been planned yet. */
+function fillTargets(prog, day, bw){
+  return blockWeeks(prog, bw).filter(x => x > bw && !weekPlanned(day, x - 1));
+}
 function renderBuilder(){
   if (!progById(ui.pid)) ui.pid = data.programs[0] ? data.programs[0].id : '';
   const prog = progById(ui.pid);
@@ -930,6 +990,9 @@ function renderBuilder(){
         ${bw > 1 ? `<button type="button" class="btn ${armedCopy ? 'armed' : ''}" data-act="copyprev">${armedCopy ? 'Tap again to replace week ' + bw : 'Copy week ' + (bw - 1)}</button>` : ''}
         ${day.type === 'weights' ? `<button type="button" class="chip" data-act="ss" data-v="${wi}" aria-pressed="${!!day.superset[wi]}">Supersets ${day.superset[wi] ? 'on' : 'off'}</button>` : ''}
       </div>
+      ${(() => { const tg = day.type === 'weights' && planned ? fillTargets(prog, day, bw) : [];
+        return tg.length ? `<div class="fillrow"><button type="button" class="btn" data-act="fillblock">Fill week${tg.length > 1 ? 's' : ''} ${tg.join(', ')} from this week</button>
+          <span class="note">${tg.some(x => isDeload(prog, x)) ? 'Reps drop each week. Week ' + tg.find(x => isDeload(prog, x)) + ' is the deload (' + DELOAD_FOCUS[tg.find(x => isDeload(prog, x))] + ', 60–70% guide for clients). ' + (tg.some(x => phaseOf(prog, x) === 'Testing') ? 'Testing week gets one top set on squat, bench and deadlift only. ' : '') : 'Same exercises. '}Only empty weeks are filled.</span></div>` : ''; })()}
     </section>`;
 
   if (day.type === 'cardio'){
@@ -949,7 +1012,7 @@ function renderBuilder(){
         <span class="exmid"><b>${esc(ex.name || 'New exercise')}</b><span class="note">${esc(exSummary(ex, wi))}</span></span><span class="chev" aria-hidden="true">›</span></button>
       ${open ? `<div class="exedit">
         <label class="group"><span class="label">Exercise</span><input id="be-${ex.id}" class="exn" data-prog="exname" data-ex="${ex.id}" value="${esc(ex.name)}" placeholder="Exercise name" autocomplete="off"></label>
-        <div class="wkf">${f('warm', 'Warm-up', '0')}${f('sets', 'Sets', '3')}${f('reps', 'Reps', '8')}${f('note', 'Technique (optional)', 'e.g. Paused reps', 'wide')}</div>
+        <div class="wkf">${f('warm', 'Warm-up', '0')}${f('sets', 'Sets', '3')}${f('reps', 'Reps', blockReps(prog, bw) || '8')}${f('note', 'Technique (optional)', 'e.g. Paused reps', 'wide')}</div>
         <div class="row"><span class="label">Group</span><div class="seg sm">${LET.map(L => `<button type="button" data-act="grp" data-ex="${ex.id}" data-v="${L}" aria-pressed="${ex.group === L}">${L}</button>`).join('')}</div></div>
         <div class="row between"><div class="row">
           <button type="button" class="btn" data-act="up" data-ex="${ex.id}" ${ei === 0 ? 'disabled' : ''} aria-label="Move up">↑</button>
@@ -1018,6 +1081,30 @@ app.addEventListener('click', e => {
     case 'bweek': if (prog){ if (!ui.bWeek) ui.bWeek = {}; ui.bWeek[prog.id] = +v; } break;
     case 'bwmove': if (prog){ if (!ui.bWeek) ui.bWeek = {}; ui.bWeek[prog.id] = Math.min(lenOf(prog), Math.max(1, bwIdx(prog) + 1 + (+v))); ui.armed = null; } break;
     case 'exopen': ui.exOpen = ui.exOpen === v ? null : v; break;
+    case 'fillblock': {
+      if (!prog || !day || lenOf(prog) !== 12) return;
+      const wi = bwIdx(prog), bw = wi + 1, tg = fillTargets(prog, day, bw);
+      if (!tg.length) return;
+      tg.forEach(x => { const ti = x - 1;
+        day.exercises.forEach(ex => {
+          const src = ex.weeks[wi]; if (!setCount(src.sets)) return;
+          const r = clone(src);
+          { const br = blockReps(prog, x);
+            if (br) r.reps = br;
+            else if (isDeload(prog, x)){
+              /* Deload: same reps as the last training week before it, with that block's focus. */
+              for (let k = ti - 1; k >= 0; k--){ const q = ex.weeks[k]; if (setCount(q.sets) && !['Testing', 'Deload'].includes(phaseOf(prog, k + 1))){ r.reps = q.reps; break; } }
+              r.note = DELOAD_FOCUS[x] || r.note;
+            } else if (phaseOf(prog, x) === 'Testing'){
+              /* Testing: one top set on the big compound lifts only. */
+              if (!isCompound(ex.name)) return;
+              r.sets = '1'; r.reps = 'Max'; r.note = 'Top set: go for a PB'; r.warm = '0';
+            } }
+          ex.weeks[ti] = r; ex.custom = ex.weeks.some(q => !sameRow(q, ex.weeks[0]));
+        });
+        day.superset[ti] = !!day.superset[wi];
+      });
+      scheduleDataSave(); break; }
     case 'ckopen': ui.ckOpen = true; break;
     case 'ckreply': {
       const ta = document.getElementById('ck-text'), text = (ta ? ta.value : '').trim();
@@ -1096,7 +1183,8 @@ app.addEventListener('click', e => {
     case 'ss': day.superset[+v] = !day.superset[+v]; scheduleDataSave(); break;
     case 'addex': { const at = bwIdx(prog), id = uid();
       /* A new exercise only goes into the week being planned. */
-      day.exercises.push({id, name:'', group: day.exercises.some(x => x.group === 'A') ? 'B' : 'A', weeks: Array.from({length: MAXW}, (_, w) => w === at ? blankW() : {sets:'', reps:'', note:'', warm:'0'}), custom: true});
+      const nw = blankW(), br = blockReps(prog, at + 1); if (br) nw.reps = br;
+      day.exercises.push({id, name:'', group: day.exercises.some(x => x.group === 'A') ? 'B' : 'A', weeks: Array.from({length: MAXW}, (_, w) => w === at ? nw : {sets:'', reps:'', note:'', warm:'0'}), custom: true});
       ui.exOpen = id; scheduleDataSave(); break; }
     case 'up': case 'down': {
       const i = day.exercises.indexOf(ex), j = act === 'up' ? i - 1 : i + 1;
@@ -1172,6 +1260,13 @@ app.addEventListener('input', e => {
     scheduleLogSave(logId(person, p.week, p.day));
     const hero = document.querySelector('.pbhero');
     if (hero && mode === 'client' && myHistory && phaseOf(myProgram, p.week) === 'Testing'){ const tmp = document.createElement('div'); tmp.innerHTML = pbHero(myHistory); hero.replaceWith(tmp.firstElementChild); }
+    const pc = t.closest('.pbtest');
+    if (pc){
+      const kgI = pc.querySelector('[data-k=kg]'), rI = pc.querySelector('[data-k=reps]');
+      const pk = pc.dataset.pk === '' ? null : +pc.dataset.pk, pr = pc.dataset.pr === '' ? null : +pc.dataset.pr;
+      const b2 = pbBeat(num(kgI.value), num(rI.value), pk, pr);
+      pc.classList.toggle('beat', b2); pc.querySelector('.pbt-msg').textContent = pbMsg(b2, pc.dataset.has === '1');
+    }
   }
 });
 app.addEventListener('focusin', e => {
