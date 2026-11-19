@@ -251,6 +251,16 @@ svg.chart .grid{stroke:var(--line);stroke-width:1}
 .linkrow{display:flex;gap:8px;align-items:center}
 .linkrow input{flex:1 1 auto;font-size:.8rem;min-height:40px;color:#bdbdbd}
 .dot{display:none}
+.trow{display:flex;gap:8px}.trow select{flex:1 1 0}.trow input{flex:0 0 150px}
+.ckdot{display:flex;align-items:center;gap:10px;width:100%;background:var(--raised);border:0;border-radius:16px;padding:14px 16px;color:var(--ink);font:inherit;text-align:left;cursor:pointer;margin-bottom:14px}
+.ckdot i{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none;box-shadow:0 0 0 4px rgba(255,90,40,.18)}
+.ckdot span{margin-left:auto;color:var(--muted);font-size:.85rem}
+.ckcard{gap:12px;border:1px solid var(--accent);margin-bottom:14px}
+.ckmsg{margin:0;font-size:1.08rem;line-height:1.45}
+.msgs{gap:12px}.mhead{display:flex;align-items:center;justify-content:space-between}
+.msg{padding:12px 14px;border-radius:14px;background:var(--raised)}.msg.new{box-shadow:inset 3px 0 0 var(--accent)}
+.mtop{display:flex;justify-content:space-between;gap:10px;font-size:.84rem}.mtop span{color:var(--muted)}
+.msg p{margin:6px 0 0;line-height:1.45;white-space:pre-wrap}
 select{width:100%}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
@@ -299,6 +309,8 @@ let mode = 'loading';
 let me = null;          // client mode: {id, name}
 let myProgram = null;   // client mode: normalized program
 let myHistory = null;   // client mode: training before the app (PBs, summary)
+let myCheckin = false;  // client mode: Blake's check-in waiting for a reply
+let msgs = [];          // coach mode: check-in replies
 let data = null;        // coach mode: {programs, clients}
 let logs = {}, logsLoaded = false;
 let dataBase = null, dataDirty = false, dataTimer = null, dataChain = Promise.resolve();
@@ -320,7 +332,7 @@ const ls = {
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
   del(k){ try{ localStorage.removeItem(k); }catch(e){} }
 };
-const ui = {tab: '', person: ls.get('sb.coachPerson', ''), pid: '', progPid: '', pos: {}, bDay: 0, open: {}, armed: null, pEx: ls.get('sb.pEx', ''), pDayFor: {}, pClient: ls.get('sb.pClient', ''), pOpen: {}, copied: '', newProg: false};
+const ui = {tab: QS.has('msgs') ? 'clients' : '', person: ls.get('sb.coachPerson', ''), pid: '', progPid: '', pos: {}, bDay: 0, open: {}, armed: null, pEx: ls.get('sb.pEx', ''), pDayFor: {}, pClient: ls.get('sb.pClient', ''), pOpen: {}, copied: '', newProg: false};
 
 /* ---------- helpers ---------- */
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -357,10 +369,14 @@ function normDays(src){
   });
 }
 const normProgram = p => ({id: String((p && p.id) || 'p' + uid()), name: String((p && p.name) || 'Program'), len: lenOf(p), days: normDays(p && p.days)});
+const normTrain = t => (t && typeof t === 'object') ? {day: t.day === '' || t.day == null || isNaN(+t.day) ? '' : +t.day, time: String(t.time || '')} : {day: '', time: ''};
+const hasTrain = c => !!(c && c.train && c.train.day !== '' && c.train.time);
+const DN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const fmtT = t => { const m = /^(\d{1,2}):(\d{2})/.exec(t || ''); if (!m) return ''; const h = +m[1]; return (h % 12 || 12) + (m[2] === '00' ? '' : ':' + m[2]) + (h >= 12 ? 'pm' : 'am'); };
 function normData(d){
   d = d || {};
   const programs = (Array.isArray(d.programs) ? d.programs : []).map(normProgram);
-  const clients = (Array.isArray(d.clients) ? d.clients : []).map(c => ({id: String(c.id), name: String(c.name || ''), code: String(c.code || ''), programId: String(c.programId || ''), self: !!c.self}));
+  const clients = (Array.isArray(d.clients) ? d.clients : []).map(c => ({id: String(c.id), name: String(c.name || ''), code: String(c.code || ''), programId: String(c.programId || ''), self: !!c.self, train: normTrain(c.train)}));
   return {programs, clients, rev: Number(d.rev) || 0};
 }
 /* Merge my unsent changes onto the latest saved data: anything I changed since my last load wins, everything else comes from the latest. */
@@ -444,8 +460,8 @@ function setStatus(){
   el.textContent = pending > 0 ? 'Saving…' : (mode === 'loading' ? 'Loading…' : 'Saved');
 }
 function saveCache(){
-  if (mode === 'client') ls.set(KEY + '.cache', {mode, me, program: myProgram, history: myHistory, logs});
-  else if (mode === 'coach') ls.set(KEY + '.cache', {mode, data, logs});
+  if (mode === 'client') ls.set(KEY + '.cache', {mode, me, program: myProgram, history: myHistory, checkin: myCheckin, logs});
+  else if (mode === 'coach') ls.set(KEY + '.cache', {mode, data, msgs, logs});
 }
 function scheduleDataSave(){
   dataDirty = true; saveCache();
@@ -546,7 +562,7 @@ function programSelect(id, attrs, selected){
 function renderClients(){
   const list = clientsList();
   const week = list.filter(c => { const st = clientStats(c.id); return st.last && (Date.now() - st.last) < 7 * 864e5; }).length;
-  let h = pushCard() + `<div class="summary"><b>${list.length}</b><span>${list.length === 1 ? 'client' : 'clients'} · ${week} trained this week</span></div>`;
+  let h = pushCard() + msgsCard() + `<div class="summary"><b>${list.length}</b><span>${list.length === 1 ? 'client' : 'clients'} · ${week} trained this week</span></div>`;
   if (!list.length) h += `<div class="card empty"><h2>No clients yet</h2><p>Add your first client below.</p></div>`;
   list.forEach(c => {
     const st = clientStats(c.id), legacy = !/^[a-z0-9]{10}$/.test(c.code) || c.code === slug(c.name);
@@ -558,6 +574,10 @@ function renderClients(){
         <div class="who"><h3>${esc(c.name || 'Unnamed')}</h3><div class="meta"><span>${lastTxt}</span><span><b>${st.done}</b>/${(p => lenOf(p) * ((p || {days: []}).days.length || DAYS))(progById(c.programId))} done</span></div></div>
         ${!st.last ? '<span class="pill">New</span>' : stale ? '<span class="pill warn">7+ days</span>' : '<span class="pill good">Active</span>'}</div>
       <label class="group"><span class="label">Program</span>${programSelect('cp-' + c.id, `data-change="cprog" data-c="${esc(c.id)}"`, c.programId)}</label>
+      <div class="group"><span class="label">Trains with you</span>
+        <div class="trow"><select data-change="tday" data-c="${esc(c.id)}" aria-label="${esc(c.name)}'s training day"><option value="">No set day</option>${[1,2,3,4,5,6,0].map(v => `<option value="${v}" ${c.train && c.train.day === v ? 'selected' : ''}>${DN[v]}</option>`).join('')}</select>
+        <input type="time" data-change="ttime" data-c="${esc(c.id)}" value="${esc((c.train && c.train.time) || '')}" aria-label="${esc(c.name)}'s training time"></div>
+        <span class="note">${hasTrain(c) ? `Reminder ${DN[(c.train.day + 6) % 7]} 9am · check-in ${DN[(c.train.day + 2) % 7]} 9am · Sunday message 10am` : 'Sunday message and PB alerts only. Set a day and time to add the day-before reminder and check-in.'}</span></div>
       <div class="group"><span class="label">Their link</span>
         <div class="linkrow"><input id="lk-${esc(c.id)}" readonly value="${esc(linkFor(c))}" aria-label="${esc(c.name)}'s link"><button type="button" class="btn" data-act="copy" data-c="${esc(c.id)}">${ui.copied === c.id ? 'Copied' : 'Copy'}</button></div>
         ${legacy ? `<span class="note">This link uses their name, so it could be guessed. Tap "New private link" and send them the new one.</span>` : ''}</div>
@@ -587,7 +607,7 @@ function renderLog(forced){
     h += `<label class="group"><span class="label">Client</span><select id="lg-client" data-change="lgclient">${list.map(c => `<option value="${esc(c.id)}" ${c.id === ui.person ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>`;
   }
   const person = forced || (isCoach() ? ui.person : me.id);
-  if (!isCoach() && !forced) h = pushCard() + h;
+  if (!isCoach() && !forced) h = pushCard() + checkinCard() + h;
   if (!isCoach() && myHistory && Array.isArray(myHistory.pbs) && myHistory.pbs.length) h += pbHero(myHistory);
   const prog = programOf(person);
   if (!prog) return h + `<div class="card empty"><h2>No program</h2><p>Choose a program for this client in the Clients tab.</p></div>`;
@@ -998,6 +1018,16 @@ app.addEventListener('click', e => {
     case 'bweek': if (prog){ if (!ui.bWeek) ui.bWeek = {}; ui.bWeek[prog.id] = +v; } break;
     case 'bwmove': if (prog){ if (!ui.bWeek) ui.bWeek = {}; ui.bWeek[prog.id] = Math.min(lenOf(prog), Math.max(1, bwIdx(prog) + 1 + (+v))); ui.armed = null; } break;
     case 'exopen': ui.exOpen = ui.exOpen === v ? null : v; break;
+    case 'ckopen': ui.ckOpen = true; break;
+    case 'ckreply': {
+      const ta = document.getElementById('ck-text'), text = (ta ? ta.value : '').trim();
+      if (!text || ui.ckBusy) return;
+      ui.ckText = text; ui.ckBusy = true; ui.ckErr = false; render();
+      api('replyCheckin', CODE, text).then(() => { ui.ckSent = true; ui.ckText = ''; myCheckin = false; saveCache(); }, () => { ui.ckErr = true; })
+        .finally(() => { ui.ckBusy = false; render(); });
+      return; }
+    case 'msgall': ui.msgAll = !ui.msgAll; break;
+    case 'msgread': msgs.forEach(m => { m.read = true; }); saveCache(); api('readMessages', pin()).catch(() => {}); break;
     case 'copyprev': {
       if (!prog || !day) return; const wi = bwIdx(prog); if (wi < 1) return;
       const key = 'cp:' + prog.id + ':' + ui.bDay + ':' + (wi + 1);
@@ -1098,6 +1128,7 @@ function fwd(get, set, w, val){ set(w, val); }   /* every week is planned on its
 function syncRows(prefix, rows, keys){ rows.forEach((r, w) => { if (!w) return; keys.forEach(k => { const el = document.getElementById(`${prefix}-${w}-${k}`); if (el) el.value = r[k]; }); }); }
 app.addEventListener('input', e => {
   const t = e.target;
+  if (t.id === 'ck-text'){ ui.ckText = t.value; return; }
   if (t.dataset.prog){
     const prog = progById(ui.pid); if (!prog) return;
     const P = prog.id, di = ui.bDay, day = prog.days[di], k = t.dataset.prog, w = +t.dataset.w;
@@ -1153,6 +1184,7 @@ app.addEventListener('change', e => {
   else if (k === 'pclient'){ ui.pClient = t.value; ls.set('sb.pClient', t.value); render(); }
   else if (k === 'lgclient'){ ui.person = t.value; ls.set('sb.coachPerson', t.value); render(); }
   else if (k === 'cprog'){ const c = clientById(t.dataset.c); if (c){ c.programId = t.value; scheduleDataSave(); render(); } }
+  else if (k === 'tday' || k === 'ttime'){ const c = clientById(t.dataset.c); if (c){ c.train = Object.assign({day: '', time: ''}, c.train, k === 'tday' ? {day: t.value === '' ? '' : +t.value} : {time: t.value}); scheduleDataSave(); render(); } }
 });
 
 /* ---------- start ---------- */
@@ -1164,9 +1196,9 @@ function mergeLogs(serverLogs){
 }
 function applyServer(res){
   if (res.mode === 'client'){
-    mode = 'client'; me = res.client; myProgram = normProgram(res.program); myHistory = res.history || null; mergeLogs(res.logs);
+    mode = 'client'; me = res.client; myProgram = normProgram(res.program); myHistory = res.history || null; myCheckin = !!res.checkin; mergeLogs(res.logs);
   } else if (res.mode === 'coach'){
-    mode = 'coach'; if (!dataDirty){ data = normData(res.data); dataBase = clone(data); } mergeLogs(res.logs);
+    mode = 'coach'; if (!dataDirty){ data = normData(res.data); dataBase = clone(data); } msgs = Array.isArray(res.messages) ? res.messages : []; mergeLogs(res.logs);
   } else {
     mode = res.mode === 'invalid' ? 'invalid' : 'landing';
     if (mode === 'invalid'){ try{ if (localStorage.getItem('bbc.code') === CODE) localStorage.removeItem('bbc.code'); }catch(e){} }
@@ -1202,6 +1234,26 @@ function pushCard(){
   if (typeof Notification !== 'undefined' && Notification.permission === 'denied') return `<div class="pushcard"><div class="pc"><b>Notifications are blocked</b><span>Turn them on in your phone's Settings → Notifications → Built by BC.</span></div></div>`;
   return `<div class="pushcard"><div class="pc"><b>${mode === 'coach' ? 'Turn on coach notifications' : 'Turn on notifications'}</b><span>${mode === 'coach' ? 'Get a heads-up when a client replies to a check-in.' : 'Session reminders, check-ins and PB alerts from Blake.'}</span></div><button type="button" class="btn primary" data-act="pushon" ${push.ready && !push.asking ? '' : 'disabled'}>${push.asking ? 'One sec…' : push.ready ? 'Turn on' : 'Loading…'}</button></div>`;
 }
+const FROM_CK = QS.has('checkin');
+function checkinCard(){
+  if (mode !== 'client') return '';
+  if (ui.ckSent) return `<section class="card ckcard"><b>Sent to Blake 👍</b><span class="note">Thanks for letting him know how you're going.</span></section>`;
+  if (!myCheckin && !FROM_CK) return '';
+  if (!FROM_CK && !ui.ckOpen) return `<button type="button" class="ckdot" data-act="ckopen"><i></i><b>Blake checked in 💬</b><span>Tap to reply</span></button>`;
+  return `<section class="card ckcard"><span class="label">Check-in from Blake</span>
+    <p class="ckmsg">Great job with your training session with Blake. How is everything feeling now?</p>
+    <textarea id="ck-text" rows="3" placeholder="Type your reply…">${esc(ui.ckText || '')}</textarea>
+    <button type="button" class="btn big primary" data-act="ckreply" ${ui.ckBusy ? 'disabled' : ''}>${ui.ckBusy ? 'Sending…' : 'Send to Blake'}</button>
+    ${ui.ckErr ? `<span class="note">Couldn't send. Check your connection and try again.</span>` : ''}</section>`;
+}
+function msgsCard(){
+  if (!msgs.length) return '';
+  const unread = msgs.filter(m => !m.read).length;
+  const when = at => ago(at) + ' · ' + new Date(at).toLocaleTimeString('en-AU', {hour: 'numeric', minute: '2-digit'});
+  return `<section class="card msgs"><div class="mhead"><h3>Messages</h3>${unread ? `<span class="pill good">${unread} new</span>` : ''}</div>
+    ${msgs.slice(0, ui.msgAll ? 30 : 3).map(m => `<div class="msg ${m.read ? '' : 'new'}"><div class="mtop"><b style="color:${clientColor(m.id)}">${esc(m.name)}</b><span>${esc(when(m.at))}</span></div><p>${esc(m.text)}</p></div>`).join('')}
+    ${(msgs.length > 3 || unread) ? `<div class="row">${msgs.length > 3 ? `<button type="button" class="btn link" data-act="msgall">${ui.msgAll ? 'Show less' : 'Show all'}</button>` : ''}${unread ? `<button type="button" class="btn" data-act="msgread">Mark as read</button>` : ''}</div>` : ''}</section>`;
+}
 function load(){
   return api('getAll', CODE ? '' : pin(), CODE).then(r => { applyServer(JSON.parse(r)); safeRender(); flushOutbox(); pushInit(); },
     () => { if (mode === 'loading'){ mode = 'error'; render(); } else { saveError = true; setStatus(); } });
@@ -1218,8 +1270,8 @@ function start(){
   if (!CODE && !pin()){ mode = 'landing'; render(); return; }
   migrateOldOutbox();
   const cached = ls.get(KEY + '.cache', null);
-  if (cached && cached.mode === 'client' && CODE){ mode = 'client'; me = cached.me; myProgram = normProgram(cached.program); myHistory = cached.history || null; logs = cached.logs || {}; }
-  else if (cached && cached.mode === 'coach' && !CODE){ mode = 'coach'; data = normData(cached.data); dataBase = clone(data); logs = cached.logs || {}; }
+  if (cached && cached.mode === 'client' && CODE){ mode = 'client'; me = cached.me; myProgram = normProgram(cached.program); myHistory = cached.history || null; myCheckin = !!cached.checkin; logs = cached.logs || {}; }
+  else if (cached && cached.mode === 'coach' && !CODE){ mode = 'coach'; data = normData(cached.data); dataBase = clone(data); msgs = cached.msgs || []; logs = cached.logs || {}; }
   if (mode !== 'loading'){ Object.assign(logs, outbox()); logsLoaded = true; }
   render();
   load();
